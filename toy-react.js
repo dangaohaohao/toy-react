@@ -4,7 +4,12 @@ class ElementWrapper {
     this.root = document.createElement(type);
   }
   setAttribute(name, value) {
-    this.root.setAttribute(name, value);
+    // 监听事件
+    if (name.match(/^on([\s\S]+)$/)) {
+      this.root.addEventListener(RegExp.$1.replace(/^[\s\S]/, c => c.toLowerCase()), value);
+    } else {
+      this.root.setAttribute(name, value);
+    }
   }
   append(component) {
       let range = document.createRange();
@@ -34,6 +39,7 @@ export class Component {
     this.props = Object.create(null);
     this.children = [];
     this._root = null;
+    this._range = null;
   }
   setAttribute(name, value) {
     this.props[name] = value;
@@ -42,8 +48,36 @@ export class Component {
       this.children.push(component);
     }
     [RENDER_TO_DOM](range) {
+      this._range = range;
       this.render()[RENDER_TO_DOM](range);
     }
+  rerender() {
+    this._range.deleteContents();
+    this[RENDER_TO_DOM](this._range);
+  }
+  setState(newState) {
+    if (this.state === null || typeof this.state !== 'object') {
+      this.state = newState;
+      this.rerender();
+      return;
+    }
+
+    // 深拷贝
+    const merge = (oldState, newState) => {
+      for (const key in newState) {
+        if (newState.hasOwnProperty(key)) {
+          if (oldState[key] === null || typeof oldState[key] !== 'object') {
+            oldState[key] = newState[key];
+          } else {
+            merge(oldState[key], newState[key]);
+          }
+        }
+      }
+    }
+
+    merge(this.state, newState);
+    this.rerender();
+  }
 }
 
 export function createElement(type, attributes, ...children) {

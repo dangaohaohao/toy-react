@@ -4,15 +4,21 @@ class MyComponent extends Component {
   constructor() {
     super();
     this.state = {
-      name: 'yuzhenliu163'
+      name: 'yuzhenliu163',
+      num: 1,
+      num1: 3,
     }
   }
   render() {
     return (
       <div>
       <span>MyComponent</span>
-      <div>{ this.children }</div>
-      <span>{this.state.name}</span>
+      {/* <div>{ this.children }</div> */}
+      <div>{this.state.num.toString()}</div>
+      <div>{this.state.num1.toString()}</div>
+      <button onClick={() => {this.setState({
+        num: this.state.num + 1
+      })}}>add</button>
     </div>
     )
   }
