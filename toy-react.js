@@ -7,6 +7,8 @@ class ElementWrapper {
     // 监听事件
     if (name.match(/^on([\s\S]+)$/)) {
       this.root.addEventListener(RegExp.$1.replace(/^[\s\S]/, c => c.toLowerCase()), value);
+    } else if (name === 'className') {
+      this.root.setAttribute('class', value);
     } else {
       this.root.setAttribute(name, value);
     }
@@ -52,8 +54,16 @@ export class Component {
       this.render()[RENDER_TO_DOM](range);
     }
   rerender() {
-    this._range.deleteContents();
-    this[RENDER_TO_DOM](this._range);
+    // 解决新老 range 为空 合并的情况
+    let oldRange = this._range;
+
+    let range = document.createRange();
+    range.setStart(oldRange.startContainer, oldRange.startOffset);
+    range.setEnd(oldRange.startContainer, oldRange.startOffset);
+    this[RENDER_TO_DOM](range);
+
+    oldRange.setStart(range.endContainer, range.endOffset);
+    oldRange.deleteContents();
   }
   setState(newState) {
     if (this.state === null || typeof this.state !== 'object') {
@@ -100,6 +110,9 @@ export function createElement(type, attributes, ...children) {
     for (let child of children) {
       if (typeof child === 'string') {
         child = new TextWrapper(child);
+      }
+      if (child === null) {
+        continue
       }
       if (typeof child === 'object' && (child instanceof Array)) {
         insertChildren(child);
