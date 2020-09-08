@@ -18,30 +18,104 @@ export class Component {
     return this.render().vdom;
   }
 
-  get vchildren() {
-    return this.children.map(child => child.vdom)
-  }
-
   [RENDER_TO_DOM](range) {
     this._range = range;
-    this.render()[RENDER_TO_DOM](range);
+    this._vdom = this.vdom;
+    this._vdom[RENDER_TO_DOM](range);
   }
-  rerender() {
-    // 解决新老 range 为空 合并的情况
-    let oldRange = this._range;
 
-    let range = document.createRange();
-    range.setStart(oldRange.startContainer, oldRange.startOffset);
-    range.setEnd(oldRange.startContainer, oldRange.startOffset);
-    this[RENDER_TO_DOM](range);
+  update() {
 
-    oldRange.setStart(range.endContainer, range.endOffset);
-    oldRange.deleteContents();
+    const isSameNode = (oldNode, newNode) => {
+
+      // 新旧节点 type 不一致
+      if (oldNode.type !== newNode.type) return false;
+
+      // 新旧节点 props 值不一致
+      for (const key in newNode.props) {
+        if (newNode.props.hasOwnProperty(key)) {
+          if (oldNode.props[key] !== newNode.props[key]) {
+            return false;
+          }
+        }
+      }
+
+      // 旧节点属性比新节点多
+      if (Object.keys(oldNode.props).length > Object.keys(newNode.props).length) return false;
+
+      // 文本节点对比 content
+      if (newNode.type === '#text') {
+        if (newNode.content !== oldNode.content) {
+          return false
+        }
+      }
+
+      return true;
+    }
+
+    // 对比新旧 vdom 树, 递归遍历
+    const update = (oldNode, newNode) => {
+      // types, props(props 是可以通过打patch方式，但是这里简化操作), children
+      // #text content(也可以通过打patch, 这里简化)
+
+      // 节点不一致，全部替换
+      if (!isSameNode(oldNode, newNode)) {
+        newNode[RENDER_TO_DOM](oldNode._range);
+        return
+      }
+
+      newNode._range = oldNode._range;
+
+      const oldChildren = oldNode.vchildren;
+      const newChildren = newNode.vchildren;
+
+      if (!newChildren || !newChildren.length) {
+        return
+      }
+
+      let tailRange = oldChildren[oldChildren.length - 1]._range;
+
+      for (let i = 0, len = newChildren.length; i < len; i++) {
+        let oldChild = oldChildren[i];
+        let newChild = newChildren[i];
+        // newNode 的 vchildren.length 可能 大于/小于 oldNode 的 vchildren.length
+        if (i < oldChildren.length) {
+          update(oldChild, newChild);
+        } else {
+          const range = document.createRange();
+
+          range.setStart(tailRange.endContainer, tailRange.endOffset);
+          range.setEnd(tailRange.endContainer, tailRange.endOffset);
+
+          newChild[RENDER_TO_DOM](range);
+
+          tailRange = range;
+        }
+      }
+
+    }
+    let vdom = this.vdom
+    update(this._vdom, vdom);
+    this._vdom = vdom;
   }
+  // 不再是重新渲染，而是更新
+  // rerender() {
+  //   // 解决新老 range 为空 合并的情况
+  //   let oldRange = this._range;
+
+  //   let range = document.createRange();
+  //   range.setStart(oldRange.startContainer, oldRange.startOffset);
+  //   range.setEnd(oldRange.startContainer, oldRange.startOffset);
+  //   this[RENDER_TO_DOM](range);
+
+  //   oldRange.setStart(range.endContainer, range.endOffset);
+  //   oldRange.deleteContents();
+  // }
   setState(newState) {
     if (this.state === null || typeof this.state !== 'object') {
       this.state = newState;
       this.rerender();
+      // this.update();
       return;
     }
 
@@ -59,15 +133,15 @@ export class Component {
     }
 
     merge(this.state, newState);
-    this.rerender();
+    // this.rerender();
+    this.update();
   }
 }
 
 class ElementWrapper extends Component {
   constructor(type) {
-    super();
+    super(type);
     this.type = type;
-    this.root = document.createElement(type);
   }
   // 必须要调用 Component 里面的 appendChild 和 setAttribute 才会有 children 和 props
   // setAttribute(name, value) {
@@ -89,6 +163,7 @@ class ElementWrapper extends Component {
   // }
 
   get vdom() {
+    this.vchildren = this.children.map(child => child.vdom);
     return this;
     // return {
     //   type: this.type,
@@ -98,7 +173,7 @@ class ElementWrapper extends Component {
   }
 
   [RENDER_TO_DOM](range) {
-    range.deleteContents();
+    this._range = range;
 
     let root = document.createElement(this.type);
 
@@ -113,7 +188,12 @@ class ElementWrapper extends Component {
       }
     }
 
-    for (const child of this.children) {
+    // 防止上来就 [RENDER_TO_DOM]，没有取过 vdom
+    if (!this.vchildren) {
+      this.vchildren = this.children.map(child => child.vdom);
+    }
+
+    for (const child of this.vchildren) {
       const childRange = document.createRange();
       childRange.setStart(root, root.childNodes.length);
       childRange.setEnd(root, root.childNodes.length);
@@ -121,17 +201,16 @@ class ElementWrapper extends Component {
       child[RENDER_TO_DOM](childRange);
     }
 
-    range.insertNode(root);
+    replaceContent(range, root);
   }
 
 }
 
 class TextWrapper extends Component {
   constructor(content) {
-    super();
+    super(content);
     this.type = '#text';
     this.content = content;
-    this.root = document.createTextNode(content);
   }
 
   get vdom() {
@@ -143,9 +222,24 @@ class TextWrapper extends Component {
   }
 
   [RENDER_TO_DOM](range) {
-    range.deleteContents();
-    range.insertNode(this.root);
+    this._range = range;
+    const root = document.createTextNode(this.content);
+    replaceContent(range, root);
   }
+}
+
+// 防止多删
+function replaceContent(range, node) {
+  // 插入 node
+  range.insertNode(node);
+
+  // 移到 node 之后删除内容
+  range.setStartAfter(node);
+  range.deleteContents();
+
+  // 纠正 range 范围
+  range.setStartBefore(node);
+  range.setEndAfter(node);
 }
 
 export function createElement(type, attributes, ...children) {
