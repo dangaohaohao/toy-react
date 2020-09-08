@@ -1,40 +1,4 @@
 const RENDER_TO_DOM = Symbol('render to dom');
-class ElementWrapper {
-  constructor(type) {
-    this.root = document.createElement(type);
-  }
-  setAttribute(name, value) {
-    // 监听事件
-    if (name.match(/^on([\s\S]+)$/)) {
-      this.root.addEventListener(RegExp.$1.replace(/^[\s\S]/, c => c.toLowerCase()), value);
-    } else if (name === 'className') {
-      this.root.setAttribute('class', value);
-    } else {
-      this.root.setAttribute(name, value);
-    }
-  }
-  append(component) {
-      let range = document.createRange();
-      range.setStart(this.root, this.root.childNodes.length);
-      range.setEnd(this.root, this.root.childNodes.length);
-      range.deleteContents();
-      component[RENDER_TO_DOM](range);
-    }
-    [RENDER_TO_DOM](range) {
-      range.deleteContents();
-      range.insertNode(this.root);
-    }
-}
-
-class TextWrapper {
-  constructor(content) {
-      this.root = document.createTextNode(content);
-    }
-    [RENDER_TO_DOM](range) {
-      range.deleteContents();
-      range.insertNode(this.root);
-    }
-}
 
 export class Component {
   constructor() {
@@ -47,12 +11,17 @@ export class Component {
     this.props[name] = value;
   }
   append(component) {
-      this.children.push(component);
-    }
-    [RENDER_TO_DOM](range) {
-      this._range = range;
-      this.render()[RENDER_TO_DOM](range);
-    }
+    this.children.push(component);
+  }
+
+  get vdom() {
+    return this.render().vdom;
+  }
+
+  [RENDER_TO_DOM](range) {
+    this._range = range;
+    this.render()[RENDER_TO_DOM](range);
+  }
   rerender() {
     // 解决新老 range 为空 合并的情况
     let oldRange = this._range;
@@ -87,6 +56,65 @@ export class Component {
 
     merge(this.state, newState);
     this.rerender();
+  }
+}
+
+class ElementWrapper extends Component {
+  constructor(type) {
+    super();
+    this.type = type;
+    this.root = document.createElement(type);
+  }
+  // 必须要调用 Component 里面的 appendChild 和 setAttribute 才会有 children 和 props
+  // setAttribute(name, value) {
+  //   // 监听事件
+  //   if (name.match(/^on([\s\S]+)$/)) {
+  //     this.root.addEventListener(RegExp.$1.replace(/^[\s\S]/, c => c.toLowerCase()), value);
+  //   } else if (name === 'className') {
+  //     this.root.setAttribute('class', value);
+  //   } else {
+  //     this.root.setAttribute(name, value);
+  //   }
+  // }
+  // append(component) {
+  //   let range = document.createRange();
+  //   range.setStart(this.root, this.root.childNodes.length);
+  //   range.setEnd(this.root, this.root.childNodes.length);
+  //   range.deleteContents();
+  //   component[RENDER_TO_DOM](range);
+  // }
+
+  get vdom() {
+    return {
+      type: this.type,
+      props: this.props,
+      children: this.children.map(child => child.vdom)
+    }
+  }
+
+  [RENDER_TO_DOM](range) {
+    range.deleteContents();
+    range.insertNode(this.root);
+  }
+}
+
+class TextWrapper extends Component {
+  constructor(content) {
+    super();
+    this.content = content;
+    this.root = document.createTextNode(content);
+  }
+
+  get vdom() {
+    return {
+      type: '#text',
+      content: this.content
+    }
+  }
+
+  [RENDER_TO_DOM](range) {
+    range.deleteContents();
+    range.insertNode(this.root);
   }
 }
 
